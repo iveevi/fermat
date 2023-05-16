@@ -2,10 +2,13 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stack>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
+#include "error.hpp"
 
 using Integer = long long int;
 using Real = long double;
@@ -64,6 +67,11 @@ struct Operand {
         }, type { eUnresolved } {}
 
         // Properties
+        bool is_zero() {
+                return (type == eInteger && base.i == 0ll)
+                        || (type == eReal && base.r == 0.0l);
+        }
+
         bool constant() const {
                 return (type == eInteger || type == eReal);
         }
@@ -243,18 +251,28 @@ inline Operand __operation_function_div(const OperandVector &vec)
         Operand a = vec[0];
         Operand b = vec[1];
 
+        if (b.is_zero())
+                warning("div", "division by zero");
+
         Operand res;
-        if (a.type == eInteger && b.type == eInteger)
-                res = Operand { a.base.i / b.base.i };
-        else if (a.type == eInteger && b.type == eReal)
+        if (a.type == eInteger && b.type == eInteger) {
+                Integer ia = a.base.i;
+                Integer ib = b.base.i;
+
+                if (ia % ib == 0)
+                        res = Operand { a.base.i / b.base.i };
+                else
+                        res = Operand { static_cast <Real> (a.base.i) / b.base.i };
+        } else if (a.type == eInteger && b.type == eReal) {
                 res = Operand { static_cast <Real> (a.base.i) / b.base.r };
-        else if (a.type == eReal && b.type == eInteger)
+        } else if (a.type == eReal && b.type == eInteger) {
                 res = Operand { a.base.r / static_cast <Real> (b.base.i) };
-        else if (a.type == eReal && b.type == eReal)
+        } else if (a.type == eReal && b.type == eReal) {
                 res = Operand { a.base.r / b.base.r };
-        else
+        } else {
                 throw std::runtime_error("div: unsupported operand types "
                         + std::to_string(a.type) + " and " + std::to_string(b.type));
+        }
 
         return res;
 }
@@ -502,7 +520,11 @@ struct ParsingState {
 
         union {
                 Integer i;
-                Real r;
+                struct {
+                        Real value;
+                        int point;
+                        int exp;
+                } real;
         };
 
         std::string buffer;
@@ -523,20 +545,31 @@ struct ParsingState {
         std::stack <Operand> operands;
         // Operation *current_operation;
         std::stack <Operation *> operations;
+        std::stack <int64_t> scopes;
 
         void push(const Operand &opd) {
                 operands.push(opd);
         }
 
         void push(Operation *op) {
-                if (operations.empty()) {
+                bool empty_scope = operations.empty();
+                if (scopes.size() > 0)
+                        empty_scope |= (operations.size() <= scopes.top());
+
+                if (empty_scope) {
+                        assert(op);
+                        std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
                         operations.push(op);
                         return;
                 }
+                
+                if (op)
+                        std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
 
                 // operations.push(op);
                 Operation *prev = operations.top();
                 if (!op || prev->priority >= op->priority) {
+                        std::cout << "pushing op: \'" << prev->lexicon << "\'" << std::endl;
                         // We can now add the previous operation
                         // safely along with its operands
                         Operand opda = operands.top();
@@ -544,6 +577,9 @@ struct ParsingState {
 
                         Operand opdb = operands.top();
                         operands.pop();
+
+                        std::cout << "  opda: " << opda.string() << std::endl;
+                        std::cout << "  opdb: " << opdb.string() << std::endl;
 
                         operands.push(new Term { prev, opdb, opda });
                         operations.pop();
@@ -556,8 +592,17 @@ struct ParsingState {
         void flush() {
                 // Flush all operations
                 // TODO: ensure that the number of operations decreases...
-                while (!operations.empty())
-                        push(nullptr);
+                if (scopes.empty()) {
+                        while (!operations.empty())
+                                push(nullptr);
+                } else {
+                        int64_t stop = scopes.top();
+                        std::cout << "flushing until " << stop << " ops left" << std::endl;
+                        while (!operations.empty() && operations.size() > stop)
+                                push(nullptr);
+
+                        scopes.pop();
+                }
         }
 };
 
@@ -587,7 +632,7 @@ int main()
         std::cout << e1.string() << std::endl;
 
         // Example parsing
-        std::string input = "1 + 2 * 3^7/4";
+        std::string input = "1.3/(2/3 + 0.6^9) + 2.6 * 3^7/4.7";
         
         ParsingState ps {
                 .state = ParsingState::eStart,
@@ -629,16 +674,23 @@ int main()
                         switch (ps.state) {
                         case ParsingState::eStart:
                                 if (std::isdigit(c)) {
-                                        std::cout << "digit: " << c << std::endl;
+                                        // std::cout << "digit: " << c << std::endl;
                                         ps.state = ParsingState::eInteger;
                                         ps.i = 0;
                                 } else if (is_legal_operator(c)) {
+                                        // TODO: mutlicharacter operators?
                                         // std::cout << "op char: " << c << std::endl;
                                         OperationId op_id = op_lexicon[std::string(1, c)];
                                         // operands.push_back(op_id);
-                                        std::cout << "op: " << op_id << std::endl;
+                                        // std::cout << "op: " << op_id << std::endl;
                                         // ps.current_operation = &g_operations[op_id];
                                         ps.push(&g_operations[op_id]);
+                                } else if (c == '(') {
+                                        ps.state = ParsingState::eStart;
+                                        ps.scopes.push(ps.operands.size());
+                                } else if (c == ')') {
+                                        ps.state = ParsingState::eStart;
+                                        ps.flush();
                                 } else if (c == 0) {
                                         // End
                                 } else {
@@ -648,12 +700,38 @@ int main()
                                 break;
                         case ParsingState::eInteger:
                                 if (std::isdigit(c)) {
-                                        std::cout << "Appending digit: " << c << std::endl;
+                                        // std::cout << "Appending digit: " << c << std::endl;
                                         ps.i *= 10;
                                         ps.i += c - '0';
+                                } else if (c == '.') {
+                                        ps.real.value = ps.i;
+                                        ps.real.point = 1;
+                                        ps.real.exp = -1;
+
+                                        ps.state = ParsingState::eReal;
                                 } else {
                                         std::cout << "integer: " << ps.i << std::endl;
                                         ps.push(ps.i);
+                                        ps.state = ParsingState::eStart;
+                                }
+
+                                break;
+                        case ParsingState::eReal:
+                                if (std::isdigit(c)) {
+                                        // std::cout << "Appending digit: " << c << std::endl;
+                                        // ps.real.value += 10;
+                                        // ps.r += c - '0';
+                                        // ps.r_exp -= 1;
+                                        ps.real.value += (c - '0') * std::pow(10, ps.real.exp);
+                                        ps.real.exp -= 1;
+                                } else if (c == '.') {
+                                        assert(ps.real.point == 1);
+                                        // std::cout << "transfered from int: " << ps.real.value << std::endl;
+                                } else {
+                                        // std::cout << "real: " << ps.r << " * 10^" << ps.r_exp << std::endl;
+                                        // ps.push(ps.r * std::pow(10, ps.r_exp));
+                                        std::cout << "real: " << ps.real.value << std::endl;
+                                        ps.push(ps.real.value);
                                         ps.state = ParsingState::eStart;
                                 }
 
@@ -663,7 +741,7 @@ int main()
                         }
 
                         if (old_state != ps.state) {
-                                std::cout << "relooping...\n";
+                                // std::cout << "relooping...\n";
                                 continue;
                         }
 
@@ -691,5 +769,6 @@ int main()
                 stack.pop();
         }
 
-        std::cout << "Value: " << constant_eval(result).first.string() << std::endl;
+        Operand value = constant_eval(result).first;
+        std::cout << "Value: " << value.string() << std::endl;
 }
