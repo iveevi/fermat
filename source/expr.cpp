@@ -90,7 +90,7 @@ struct ParsingState {
                         // grouping -- or do we even need to specialize the
                         // groupings? -- yes, it is easier to handle
                         // smlpification and/or differentiation
-                        operands.push({ new_ <Term> (prev, opdb, opda), eTerm });
+                        operands.push({ new_ <BinaryGrouping> (prev, opdb, opda), eBinaryGrouping });
                         operations.pop();
                 }
 

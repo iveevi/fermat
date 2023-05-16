@@ -28,9 +28,16 @@ Operand simplify(const Operand &);
 // 2 - for unresolved expressions, if the operation is mostly invertible, then
 // hash subtrees and compare hashes to see if they are equal
 
-template <typename Grouping>
-requires std::is_base_of <BinaryGrouping, Grouping>::value
-Operand simplify(const Grouping &bg)
+// TODO: To define the property of operations, create group and ring abstractions?
+// struct Group {};
+
+// NOTE: using operation instead of grouping as anchor to generalize outside of
+// binary groupings...
+// std::vector <Operand> unfold(Operation *parent, const Operand &opd)
+// {
+// }
+
+Operand simplify(const BinaryGrouping &bg)
 {
         if (bg.degenerate())
                 return simplify(bg.opda);
@@ -47,12 +54,12 @@ Operand simplify(const Grouping &bg)
         // TODO: otherwise fallback to specialized simplification rules
 
         // Otherwise, return the grouping
-        Grouping out = bg;
+        BinaryGrouping out = bg;
 
         out.opda = a;
         out.opdb = b;
 
-        return { new_ <Grouping> (out), Grouping::type };
+        return { new_ <BinaryGrouping> (out), eBinaryGrouping };
 }
 
 Operand simplify(const Operand &opd)
@@ -64,12 +71,8 @@ Operand simplify(const Operand &opd)
         switch (uo.type) {
         case eVariable:
                 return opd;
-        case eFactor:
-                return simplify(uo.as_factor());
-        case eTerm:
-                return simplify(uo.as_term());
-        case eExpression:
-                return simplify(uo.as_expression());
+        case eBinaryGrouping:
+                return simplify(uo.as_binary_grouping());
         }
 
         throw std::runtime_error("simplify: unsupported operand type, opd=<" + opd.string() + ">");
@@ -82,13 +85,20 @@ std::optional <Operand> parse(const std::string &);
 int main()
 {
         // Example parsing
-        // std::string input = "1.3/(2/3 + 0.6^9) + 2.6 * 3^7/4.7";
         // TODO: implicit multiplication via conjunction
-        std::string input = "2 + 6 + 5 * (x - x) + 6/y * y + 5^(z * z) - 12";
+        std::string input1 = "2 + 6 + 5 * (x - x) + 6/y * y + 5^(z * z) - 12";
         
-        Operand result = parse(input).value();
-        std::cout << "result: " << result.string() << std::endl;
+        Operand result1 = parse(input1).value();
+        std::cout << "result: " << result1.string() << std::endl;
 
-        Operand s = simplify(result);
-        std::cout << "simplified: " << s.string() << std::endl;
+        Operand s1 = simplify(result1);
+        std::cout << "simplified: " << s1.string() << std::endl;
+        
+        std::string input2 = "1.3/(2/3 + 0.6^9) + 2.6 * 3^7/4.7";
+        
+        Operand result2 = parse(input2).value();
+        std::cout << "result: " << result2.string() << std::endl;
+
+        Operand s2 = simplify(result2);
+        std::cout << "simplified: " << s2.string() << std::endl;
 }

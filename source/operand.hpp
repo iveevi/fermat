@@ -1,6 +1,7 @@
 #pragma once
 
 // Standard headers
+#include <cassert>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,16 +21,12 @@ enum : int64_t {
 
         eVariable,
         eFunction,
-        eFactor,
-        eTerm,
-        eExpression,
+        eBinaryGrouping
 };
 
 struct Variable;
 struct Function;
-struct Factor;
-struct Term;
-struct Expression;
+struct BinaryGrouping;
 
 using Uptr = std::shared_ptr <void>;
 
@@ -38,23 +35,13 @@ struct UnresolvedOperand {
         int64_t type;
 
         const Variable &as_variable() {
+                assert(type == eVariable);
                 return *static_cast <Variable *> (ptr.get());
         }
-        //
-        // const Function &as_function() {
-        //         return *static_cast <Function *> (ptr.get());
-        // }
 
-        const Factor &as_factor() {
-                return *static_cast <Factor *> (ptr.get());
-        }
-
-        const Term &as_term() {
-                return *static_cast <Term *> (ptr.get());
-        }
-
-        const Expression &as_expression() {
-                return *static_cast <Expression *> (ptr.get());
+        const BinaryGrouping &as_binary_grouping() {
+                assert(type == eBinaryGrouping);
+                return *static_cast <BinaryGrouping *> (ptr.get());
         }
 };
 
@@ -78,23 +65,6 @@ struct Operand {
         // Constructor for constants
         Operand(Integer i_) : i { i_ }, type { eInteger } {}
         Operand(Real r_) : r { r_ }, type { eReal } {}
-
-        // Constructor for unresolved operands
-        // Operand(Variable *v) : base {
-        //         .uo = { .ptr = v, .type = eVariable }
-        // }, type { eUnresolved } {}
-        //
-        // Operand(Factor *f) : base {
-        //         .uo = { .ptr = f, .type = eFactor }
-        // }, type { eUnresolved } {}
-        //
-        // Operand(Term *t) : base {
-        //         .uo = { .ptr = t, .type = eTerm }
-        // }, type { eUnresolved } {}
-        //
-        // Operand(Expression *e) : base {
-        //         .uo = { .ptr = e, .type = eExpression }
-        // }, type { eUnresolved } {}
 
         // Assume unresolved
         Operand(const Uptr &uptr, int64_t type_)
@@ -208,49 +178,3 @@ struct BinaryGrouping {
                 return inter + sub1 + sub2;
         }
 };
-
-// Factors
-struct Factor : BinaryGrouping {
-        Factor() = default;
-        Factor(Operand opda_) : BinaryGrouping { opda_ } {}
-        Factor(Operation *op_, Operand opda_, Operand opdb_)
-                : BinaryGrouping { op_, opda_, opdb_ } {}
-
-        static constexpr int64_t type = eFactor;
-};
-
-// TODO: move to its constructor...
-inline bool factor_operation(Operation operation)
-{
-        return (operation.priority == ePriorityExponential);
-}
-
-// Terms
-struct Term : BinaryGrouping {
-        Term() = default;
-        Term(Operand opda_) : BinaryGrouping { opda_ } {}
-        Term(Operation *op_, Operand opda_, Operand opdb_)
-                : BinaryGrouping { op_, opda_, opdb_ } {}
-
-        static constexpr int64_t type = eTerm;
-};
-
-inline bool term_operation(Operation operation)
-{
-        return (operation.priority == ePriorityMultiplicative);
-}
-
-// Expressions
-struct Expression : BinaryGrouping {
-        Expression() = default;
-        Expression(Operand opda_) : BinaryGrouping { opda_ } {}
-        Expression(Operation *op_, Operand opda_, Operand opdb_)
-                : BinaryGrouping { op_, opda_, opdb_ } {}
-
-        static constexpr int64_t type = eExpression;
-};
-
-inline bool expression_operation(Operation operation)
-{
-        return (operation.priority == ePriorityAdditive);
-}
