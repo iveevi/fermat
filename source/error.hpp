@@ -1,6 +1,6 @@
 #pragma once
 
-#include <termcolor.hpp>
+#include <termcolor/termcolor.hpp>
 
 // TODO: format string with %v for values?
 inline void warning(const std::string &header, const std::string &str)
