@@ -43,10 +43,10 @@ Operation *op_mul = &g_operations[2];
 Operation *op_div = &g_operations[3];
 Operation *op_exp = &g_operations[4];
 
-using __operation_function = std::function <Operand (const OperandVector &)>;
+using __operation_function = std::function <Operand (const std::vector <Operand> &)>;
 
 // TODO: overload manager to resolve between different groups of items
-inline Operand __operation_function_add(const OperandVector &vec)
+inline Operand __operation_function_add(const std::vector <Operand> &vec)
 {
         Operand a = vec[0];
         Operand b = vec[1];
@@ -67,7 +67,7 @@ inline Operand __operation_function_add(const OperandVector &vec)
         return res;
 }
 
-inline Operand __operation_function_sub(const OperandVector &vec)
+inline Operand __operation_function_sub(const std::vector <Operand> &vec)
 {
         Operand a = vec[0];
         Operand b = vec[1];
@@ -88,7 +88,7 @@ inline Operand __operation_function_sub(const OperandVector &vec)
         return res;
 }
 
-inline Operand __operation_function_mul(const OperandVector &vec)
+inline Operand __operation_function_mul(const std::vector <Operand> &vec)
 {
         Operand a = vec[0];
         Operand b = vec[1];
@@ -109,7 +109,7 @@ inline Operand __operation_function_mul(const OperandVector &vec)
         return res;
 }
 
-inline Operand __operation_function_div(const OperandVector &vec)
+inline Operand __operation_function_div(const std::vector <Operand> &vec)
 {
         Operand a = vec[0];
         Operand b = vec[1];
@@ -140,7 +140,7 @@ inline Operand __operation_function_div(const OperandVector &vec)
         return res;
 }
 
-inline Operand __operation_function_exp(const OperandVector &vec)
+inline Operand __operation_function_exp(const std::vector <Operand> &vec)
 {
         Real a;
         Real b;
@@ -166,7 +166,19 @@ std::unordered_map <OperationId, __operation_function> g_operation_functions {
         { op_exp->id, __operation_function_exp },
 };
 
-Operand opftn(Operation *op, const OperandVector &vec)
+Operand opftn(const Operation *op, const std::vector <Operand> &vec)
 {
         return g_operation_functions[op->id](vec);
 }
+
+std::unordered_map <OperationId, CommutativeInverse> commutative_inverses {
+        { op_add->id, {
+                op_sub->id,
+                [](const Operand &opd) {
+                        return Operand {
+                                new_ <BinaryGrouping> (op_mul, -1ll, opd),
+                                eBinaryGrouping
+                        };
+                }
+        }}
+};

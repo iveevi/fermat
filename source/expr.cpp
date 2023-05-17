@@ -59,18 +59,18 @@ struct ParsingState {
 
                 if (empty_scope) {
                         assert(op);
-                        std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
+                        // std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
                         operations.push(op);
                         return;
                 }
                 
-                if (op)
-                        std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
+                // if (op)
+                //         std::cout << "op on hold: \'" << op->lexicon << "\'" << std::endl;
 
                 // operations.push(op);
                 Operation *prev = operations.top();
                 if (!op || prev->priority >= op->priority) {
-                        std::cout << "pushing op: \'" << prev->lexicon << "\'" << std::endl;
+                        // std::cout << "pushing op: \'" << prev->lexicon << "\'" << std::endl;
 
                         // TODO: error msg here...
                         assert(operands.size() >= 2);
@@ -83,8 +83,8 @@ struct ParsingState {
                         Operand opdb = operands.top();
                         operands.pop();
 
-                        std::cout << "  opda: " << opda.string() << std::endl;
-                        std::cout << "  opdb: " << opdb.string() << std::endl;
+                        // std::cout << "  opda: " << opda.string() << std::endl;
+                        // std::cout << "  opdb: " << opdb.string() << std::endl;
 
                         // TODO: check to mke sure the operations matches
                         // grouping -- or do we even need to specialize the
@@ -106,7 +106,7 @@ struct ParsingState {
                                 push(nullptr);
                 } else {
                         int64_t stop = scopes.top();
-                        std::cout << "flushing until " << stop << " ops left" << std::endl;
+                        // std::cout << "flushing until " << stop << " ops left" << std::endl;
                         while (!operations.empty() && operations.size() > stop)
                                 push(nullptr);
 
@@ -164,7 +164,7 @@ std::optional <Operand> parse(const std::string &expression)
                                         // ps.current_operation = &g_operations[op_id];
                                         ps.push(&g_operations[op_id]);
                                 } else if (std::isalpha(c)) {
-                                        std::cout << "variable: " << c << std::endl;
+                                        // std::cout << "variable: " << c << std::endl;
                                         // TODO: literal constructor?
                                         ps.push({ new_ <Variable> (std::string(1, c)), eVariable });
 
@@ -197,7 +197,7 @@ std::optional <Operand> parse(const std::string &expression)
 
                                         ps.state = ParsingState::eReal;
                                 } else {
-                                        std::cout << "integer: " << ps.i << std::endl;
+                                        // std::cout << "integer: " << ps.i << std::endl;
                                         ps.push(ps.i);
                                         ps.state = ParsingState::eStart;
                                 }
@@ -217,7 +217,7 @@ std::optional <Operand> parse(const std::string &expression)
                                 } else {
                                         // std::cout << "real: " << ps.r << " * 10^" << ps.r_exp << std::endl;
                                         // ps.push(ps.r * std::pow(10, ps.r_exp));
-                                        std::cout << "real: " << ps.real.value << std::endl;
+                                        // std::cout << "real: " << ps.real.value << std::endl;
                                         ps.push(ps.real.value);
                                         ps.state = ParsingState::eStart;
                                 }

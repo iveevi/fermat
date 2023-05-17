@@ -34,12 +34,12 @@ struct UnresolvedOperand {
         Uptr ptr;
         int64_t type;
 
-        const Variable &as_variable() {
+        const Variable &as_variable() const {
                 assert(type == eVariable);
                 return *static_cast <Variable *> (ptr.get());
         }
 
-        const BinaryGrouping &as_binary_grouping() {
+        const BinaryGrouping &as_binary_grouping() const {
                 assert(type == eBinaryGrouping);
                 return *static_cast <BinaryGrouping *> (ptr.get());
         }
@@ -111,8 +111,6 @@ struct Operand {
 
         int64_t type = eBlank;
 };
-
-using OperandVector = std::vector <Operand>;
 
 // Variables
 struct Variable {
