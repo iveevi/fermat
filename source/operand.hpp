@@ -33,6 +33,16 @@ using Uptr = std::shared_ptr <void>;
 struct UnresolvedOperand {
         Uptr ptr;
         int64_t type;
+        
+        Variable &as_variable() {
+                assert(type == eVariable);
+                return *static_cast <Variable *> (ptr.get());
+        }
+
+        BinaryGrouping &as_binary_grouping() {
+                assert(type == eBinaryGrouping);
+                return *static_cast <BinaryGrouping *> (ptr.get());
+        }
 
         const Variable &as_variable() const {
                 assert(type == eVariable);
@@ -63,8 +73,13 @@ struct Operand {
         Operand() = default;
 
         // Constructor for constants
-        Operand(Integer i_) : i { i_ }, type { eInteger } {}
-        Operand(Real r_) : r { r_ }, type { eReal } {}
+        template <typename I>
+        requires std::is_integral_v <I>
+        Operand(I i_) : i { i_ }, type { eInteger } {}
+
+        template <typename R>
+        requires std::is_floating_point_v <R>
+        Operand(R r_) : r { r_ }, type { eReal } {}
 
         // Assume unresolved
         Operand(const Uptr &uptr, int64_t type_)

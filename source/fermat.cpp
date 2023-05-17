@@ -2,8 +2,10 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stack>
 #include <unordered_map>
 #include <variant>
@@ -30,6 +32,9 @@ Operand simplify(const Operand &);
 
 // TODO: To define the property of operations, create group and ring abstractions?
 // struct Group {};
+
+using ExpressionHash = int64_t; // NOTE: first bit is always tractable signage
+// of the expression; e.g. for 2x is 0 and for -2x is 1
 
 bool is_constant(const Operand &opd)
 {
@@ -232,9 +237,125 @@ Operand simplify(const Operand &opd)
         throw std::runtime_error("simplify: unsupported operand type, opd=<" + opd.string() + ">");
 }
 
-// TODO
-
 std::optional <Operand> parse(const std::string &);
+
+struct PartiallyEvaluated {
+        Operand opd;
+
+        std::map <std::string, int> ordering;
+        std::map <std::string, std::vector <Operand *>> addresses;
+
+        Operand operator()(const std::map <std::string, Operand> &values) const
+        {
+                for (const auto &pair : values) {
+                        const std::string &var = pair.first;
+                        const Operand &opd = pair.second;
+
+                        const std::vector <Operand *> &addresses = this->addresses.at(var);
+                        for (Operand *address : addresses)
+                                *address = opd;
+                }
+
+                std::cout << "Substituted: " << opd.string() << std::endl;
+
+                return simplify(opd);
+        }
+
+        template <typename ... Args>
+        Operand operator()(Args ... args) const
+        {
+                std::vector <Operand> opds = { args ... };
+                assert(opds.size() == ordering.size());
+
+                for (const auto &pair : addresses) {
+                        const std::string &var = pair.first;
+                        const std::vector <Operand *> &addresses = pair.second;
+
+                        int index = ordering.at(var);
+                        assert(index < opds.size());
+
+                        for (Operand *address : addresses)
+                                *address = opds[index];
+                }
+
+                std::cout << "Substituted: " << opd.string() << std::endl;
+
+                return simplify(opd);
+        }
+};
+
+PartiallyEvaluated convert(const Operand &opd)
+{
+        assert(!opd.is_blank());
+
+        PartiallyEvaluated pe;
+        pe.opd = opd;
+
+        if (opd.is_constant()) {
+                warning("convert", "constant operand, opd=<" + opd.string() + ">");
+                return { opd };
+        }
+
+        std::set <std::string> variables;
+
+        std::stack <Operand *> stack;
+        stack.push(&pe.opd);
+
+        auto push_address = [&](const std::string &var, Operand *address) {
+                if (pe.addresses.find(var) == pe.addresses.end())
+                        pe.addresses[var] = { address };
+                else
+                        pe.addresses[var].push_back(address);
+        };
+
+        while (!stack.empty()) {
+                Operand *opd = stack.top();
+                stack.pop();
+
+                if (opd->is_constant())
+                        continue;
+
+                UnresolvedOperand uo = opd->uo;
+                switch (uo.type) {
+                case eVariable:
+                        variables.insert(uo.as_variable().lexicon);
+                        // TODO: record location
+                        push_address(uo.as_variable().lexicon, opd);
+                        break;
+                case eBinaryGrouping:
+                        BinaryGrouping &bg = uo.as_binary_grouping();
+                        stack.push(&bg.opda);
+
+                        if (!bg.degenerate())
+                                stack.push(&bg.opdb);
+
+                        break;
+                }
+        }
+
+        std::cout << "variables: " << variables.size() << std::endl;
+        for (const std::string &var : variables)
+                std::cout << "  " << var << std::endl;
+
+        std::vector <std::string> sorted(variables.begin(), variables.end());
+        std::sort(sorted.begin(), sorted.end());
+
+        for (int i = 0; i < sorted.size(); i++)
+                pe.ordering[sorted[i]] = i;
+
+        std::cout << "ordering: " << pe.ordering.size() << std::endl;
+        for (const auto &pair : pe.ordering)
+                std::cout << "  " << pair.first << " -> " << pair.second << std::endl;
+
+        std::cout << "addresses: " << pe.addresses.size() << std::endl;
+        for (const auto &pair : pe.addresses) {
+                std::cout << "  " << pair.first << " -> " << pair.second.size() << std::endl;
+                for (Operand *address : pair.second)
+                        std::cout << "    " << address->pretty(1) << std::endl;
+        }
+
+        return pe;
+}
 
 int main()
 {
@@ -269,4 +390,12 @@ int main()
         // PartiallyEvaluated pe = partially_evaluate(e);
         // a = pe(1, 2, 3) or pe({"x": 1, "y": 2, "z": 3})
         // default for no dict is alphabetical order
+
+        // TODO: some way to JIT partially evaluated functions
+        PartiallyEvaluated pe = convert(fs);
+        Operand a = pe(1, 2, 3);
+        std::cout << "a: " << a.string() << std::endl;
+
+        Operand b = pe({{"x", 1}, {"y", 2}, {"z", 3}});
+        std::cout << "b: " << b.string() << std::endl;
 }
