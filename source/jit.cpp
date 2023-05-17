@@ -2,6 +2,9 @@
 #include "jit.hpp"
 #include "operation_impl.hpp"
 
+namespace fermat {
+
+// TODO: detail
 gccjit::rvalue __jit_parse(JITContext &jit_ctx, const BinaryGrouping &bg)
 {
         if (bg.degenerate())
@@ -62,4 +65,5 @@ gccjit::rvalue __jit_parse(JITContext &jit_ctx, const Operand &opd)
 
         throw std::runtime_error("unsupported operand type");
 }
-        
+
+}

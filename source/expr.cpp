@@ -7,11 +7,13 @@
 #include <unordered_map>
 
 // Local headers
+#include "expr.hpp"
 #include "operand.hpp"
 #include "operation.hpp"
 #include "operation_impl.hpp"
 
-// TODO: optional <Expression> parse()
+namespace fermat {
+
 struct ParsingState {
         enum {
                 eStart,
@@ -249,14 +251,16 @@ std::optional <Operand> parse(const std::string &expression)
         std::stack <Operand> stack = ps.operands;
         Operand result = stack.top();
 
-        std::cout << "operands: " << stack.size() << std::endl;
-        while (!stack.empty()) {
-                std::cout << "  > " << stack.top().string() << std::endl;
-                std::cout << stack.top().pretty() << std::endl;
-                stack.pop();
-        }
+        // std::cout << "operands: " << stack.size() << std::endl;
+        // while (!stack.empty()) {
+        //         std::cout << "  > " << stack.top().string() << std::endl;
+        //         std::cout << stack.top().pretty() << std::endl;
+        //         stack.pop();
+        // }
 
         // TODO: perform some endof parsing checks
 
         return result;
+}
+
 }

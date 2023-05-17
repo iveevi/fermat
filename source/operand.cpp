@@ -1,5 +1,7 @@
 #include "operand.hpp"
 
+namespace fermat {
+
 // Deep clone
 Operand Operand::clone() const
 {
@@ -66,4 +68,6 @@ std::string Operand::pretty(int indent) const
         }
 
         return inter + "<?:" + std::to_string(type) + ">";
+}
+
 }

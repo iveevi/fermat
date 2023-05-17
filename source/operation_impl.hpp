@@ -7,6 +7,8 @@
 #include "operation.hpp"
 #include "operand.hpp"
 
+namespace fermat {
+
 using __operation_function = std::function <Operand (const std::vector <Operand> &)>;
 
 OperationId getid();
@@ -27,3 +29,5 @@ struct CommutativeInverse {
 };
 
 extern std::unordered_map <OperationId, CommutativeInverse> commutative_inverses;
+
+}

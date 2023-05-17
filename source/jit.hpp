@@ -10,6 +10,8 @@
 // Local headers
 #include "operand.hpp"
 
+namespace fermat {
+
 enum OptimizationLevel { O0 = 0, O1 = 1, O2 = 2, O3 = 3, Og = -1 };
 
 struct JITContext {
@@ -63,3 +65,5 @@ struct JITFunction {
 
 
 gccjit::rvalue __jit_parse(JITContext &, const Operand &);
+
+}

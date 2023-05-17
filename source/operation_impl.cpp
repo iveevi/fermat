@@ -5,6 +5,8 @@
 #include "error.hpp"
 #include "operation_impl.hpp"
 
+namespace fermat {
+
 OperationId getid() {
         static OperationId id = 0;
         return id++;
@@ -182,3 +184,5 @@ std::unordered_map <OperationId, CommutativeInverse> commutative_inverses {
                 }
         }}
 };
+
+}

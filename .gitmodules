@@ -1,3 +1,6 @@
 [submodule "vendor/termcolor"]
 	path = vendor/termcolor
 	url = https://github.com/ikalnytskyi/termcolor.git
+[submodule "vendor/benchmark"]
+	path = vendor/benchmark
+	url = https://github.com/google/benchmark.git

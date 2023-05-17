@@ -9,6 +9,8 @@
 // Local headers
 #include "operation.hpp"
 
+namespace fermat {
+
 using Integer = long long int;
 using Real = long double;
 
@@ -202,3 +204,5 @@ struct BinaryGrouping {
                 return inter + sub1 + sub2;
         }
 };
+
+}

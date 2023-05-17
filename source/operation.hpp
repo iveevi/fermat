@@ -3,6 +3,8 @@
 // Standard headers
 #include <string>
 
+namespace fermat {
+
 using OperationId = int64_t;
 
 enum Classifications : uint64_t {
@@ -32,3 +34,5 @@ struct Operation {
         Priority priority; // TODO: refactor to precedence
         Classifications classifications;
 };
+
+}
