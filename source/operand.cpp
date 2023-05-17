@@ -1,5 +1,30 @@
 #include "operand.hpp"
 
+// Deep clone
+Operand Operand::clone() const
+{
+        // Only need to clone when operand stores a pointer
+        // e.g. when it is an unresolved operand
+        if (is_blank() || is_constant())
+                return *this;
+
+        if (uo.type == eVariable) {
+                return Operand {
+                        new_ <Variable> (uo.as_variable()),
+                        eVariable
+                };
+        }
+
+        if (uo.type == eBinaryGrouping) {
+                return Operand {
+                        new_ <BinaryGrouping> (uo.as_binary_grouping().clone()),
+                        eBinaryGrouping
+                };
+        }
+
+        throw std::runtime_error("Operand::clone(): unknown type");
+}
+
 // Printing
 std::string Operand::string(Operation *parent) const
 {

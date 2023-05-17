@@ -86,6 +86,9 @@ struct Operand {
                 : uo { .ptr = uptr, .type = type_ },
                 type { eUnresolved } {}
 
+        // Deep clone
+        Operand clone() const;
+
         // Properties
         bool is_zero() {
                 return (type == eInteger && i == 0ll)
@@ -158,6 +161,14 @@ struct BinaryGrouping {
         BinaryGrouping(Operand opda_) : opda { opda_ } {}
         BinaryGrouping(Operation *op_, Operand opda_, Operand opdb_)
                 : op { op_ }, opda { opda_ }, opdb { opdb_ } {}
+
+        // Deep clone
+        BinaryGrouping clone() const {
+                if (degenerate())
+                        return BinaryGrouping { opda.clone() };
+
+                return BinaryGrouping { op, opda.clone(), opdb.clone() };
+        }
 
         bool degenerate() const {
                 return (op == nullptr);

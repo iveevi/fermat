@@ -15,6 +15,7 @@
 #include "operation.hpp"
 #include "operand.hpp"
 #include "operation_impl.hpp"
+#include "jit.hpp"
 
 // using VariableId = int64_t;
 // using Variable = VariableId;
@@ -178,6 +179,8 @@ Operand __simplificiation_fold(const BinaryGrouping &bg)
         }
 
         Operand unresolved_folded = fold(bg.op, unresolved);
+        // TODO: hash each element and see if we can combine terms...
+        // or factor common terms (thats maximizes some score...)
 
         assert(!constant.is_blank() || !unresolved_folded.is_blank());
         if (constant.is_blank())
@@ -240,13 +243,13 @@ Operand simplify(const Operand &opd)
 std::optional <Operand> parse(const std::string &);
 
 struct PartiallyEvaluated {
+        const Operand src; // NOTE: tihs one does not change...
         Operand opd;
 
         std::map <std::string, int> ordering;
         std::map <std::string, std::vector <Operand *>> addresses;
 
-        Operand operator()(const std::map <std::string, Operand> &values) const
-        {
+        Operand operator()(const std::map <std::string, Operand> &values) const {
                 for (const auto &pair : values) {
                         const std::string &var = pair.first;
                         const Operand &opd = pair.second;
@@ -257,15 +260,17 @@ struct PartiallyEvaluated {
                 }
 
                 std::cout << "Substituted: " << opd.string() << std::endl;
+                std::cout << "src = " << src.string() << std::endl;
 
                 return simplify(opd);
         }
 
         template <typename ... Args>
-        Operand operator()(Args ... args) const
-        {
+        Operand operator()(Args ... args) const {
                 std::vector <Operand> opds = { args ... };
                 assert(opds.size() == ordering.size());
+                
+                std::cout << "pre-src = " << src.string() << std::endl;
 
                 for (const auto &pair : addresses) {
                         const std::string &var = pair.first;
@@ -279,8 +284,60 @@ struct PartiallyEvaluated {
                 }
 
                 std::cout << "Substituted: " << opd.string() << std::endl;
+                std::cout << "src = " << src.string() << std::endl;
 
                 return simplify(opd);
+        }
+
+        // Generate JIT-compiled function
+        JITFunction emit(OptimizationLevel level = O0, bool dump = false) {
+                std::cout << "emitting: " << src.string() << std::endl;
+                // TODO: detect maximal duplicate nodes and emit code as
+                // apprpriate..
+
+                gccjit::context ctx = gccjit::context::acquire();
+
+                // Configure options
+                ctx.set_bool_option (GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, dump);
+
+                if (level == Og)
+                        ctx.set_bool_option (GCC_JIT_BOOL_OPTION_DEBUGINFO, 1);
+                else
+                        ctx.set_int_option (GCC_JIT_INT_OPTION_OPTIMIZATION_LEVEL, level);
+
+                // Set types
+                gccjit::type type = ctx.get_type(GCC_JIT_TYPE_LONG_DOUBLE);
+                gccjit::type type_ptr = type.get_pointer().get_const();
+
+                // Allocate rvalues for variables
+                gccjit::param array = ctx.new_param(type_ptr, "array");
+
+                std::map <std::string, gccjit::lvalue> variables;
+                for (const auto &pair : ordering)
+                        variables[pair.first] = array[pair.second];
+
+                std::vector <gccjit::param> args = { array };
+                gccjit::function ftn = ctx.new_function(GCC_JIT_FUNCTION_EXPORTED,
+                        ctx.get_type(GCC_JIT_TYPE_LONG_DOUBLE), "ftn", args, 0);
+
+                // Generate the code for the expression
+                JITContext jit_ctx {
+                        ctx, type, type_ptr,
+                        ftn.new_block(), variables
+                };
+
+                gccjit::rvalue ret = __jit_parse(jit_ctx, src);
+                jit_ctx.block.end_with_return(ret);
+
+                // Compile the code
+                gcc_jit_result *result = ctx.compile();
+                if (!result)
+                        throw std::runtime_error("JITFunction: failed to compile");
+
+                // ctx.dump_to_file("jit.c", 0);
+                ctx.release();
+
+                return JITFunction { result, ordering.size() };
         }
 };
 
@@ -288,12 +345,12 @@ PartiallyEvaluated convert(const Operand &opd)
 {
         assert(!opd.is_blank());
 
-        PartiallyEvaluated pe;
-        pe.opd = opd;
+        PartiallyEvaluated pe { opd };
+        pe.opd = opd.clone();
 
         if (opd.is_constant()) {
                 warning("convert", "constant operand, opd=<" + opd.string() + ">");
-                return { opd };
+                return { opd, opd };
         }
 
         std::set <std::string> variables;
@@ -351,7 +408,7 @@ PartiallyEvaluated convert(const Operand &opd)
         for (const auto &pair : pe.addresses) {
                 std::cout << "  " << pair.first << " -> " << pair.second.size() << std::endl;
                 for (Operand *address : pair.second)
-                        std::cout << "    " << address->pretty(1) << std::endl;
+                        std::cout << "    " << address->pretty(1) << " @ " << address << std::endl;
         }
 
         return pe;
@@ -386,16 +443,15 @@ int main()
         std::cout << "simplified folded: " << fs.string() << std::endl;
         std::cout << fs.pretty(1) << std::endl;
 
-        // TODO:
-        // PartiallyEvaluated pe = partially_evaluate(e);
-        // a = pe(1, 2, 3) or pe({"x": 1, "y": 2, "z": 3})
-        // default for no dict is alphabetical order
-
-        // TODO: some way to JIT partially evaluated functions
         PartiallyEvaluated pe = convert(fs);
         Operand a = pe(1, 2, 3);
         std::cout << "a: " << a.string() << std::endl;
 
         Operand b = pe({{"x", 1}, {"y", 2}, {"z", 3}});
         std::cout << "b: " << b.string() << std::endl;
+
+        // TODO: pass signature of args to emit (the return value will be
+        // determined by the expression itself)
+        JITFunction jftn = pe.emit();
+        std::cout << "ftn: " << jftn(1, 2, 3) << ", " << jftn(4, 5, 6) << std::endl;
 }

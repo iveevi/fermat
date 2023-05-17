@@ -1,11 +1,16 @@
 project('fermat', 'cpp')
+
+cpp = meson.get_compiler('cpp')
+libgccjit = cpp.find_library('gccjit')
+
 executable('fermat',
-  'source/fermat.cpp',
   'source/expr.cpp',
+  'source/fermat.cpp',
+  'source/jit.cpp',
   'source/operand.cpp',
   'source/operation_impl.cpp',
-  cpp_args: [ '-std=c++20', '-fsanitize=address' ],
-  link_args: '-fsanitize=address',
+  cpp_args: [ '-std=c++20' ],
+  dependencies: [ libgccjit ],
   include_directories: include_directories(
     'vendor',
     'vendor/termcolor/include/termcolor'
