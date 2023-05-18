@@ -3,6 +3,7 @@
 
 // Local headers
 #include "error.hpp"
+#include "operand.hpp"
 #include "operation_impl.hpp"
 
 namespace fermat {
@@ -48,6 +49,7 @@ Operation *op_exp = &g_operations[4];
 using __operation_function = std::function <Operand (const std::vector <Operand> &)>;
 
 // TODO: overload manager to resolve between different groups of items
+// TODO: detail namespace
 inline Operand __operation_function_add(const std::vector <Operand> &vec)
 {
         Operand a = vec[0];
@@ -178,11 +180,31 @@ std::unordered_map <OperationId, CommutativeInverse> commutative_inverses {
                 op_sub->id,
                 [](const Operand &opd) {
                         return Operand {
+                                // TODO: just return -opd
                                 new_ <BinaryGrouping> (op_mul, -1ll, opd),
                                 eBinaryGrouping
                         };
                 }
-        }}
+        }},
+        { op_mul->id, {
+                op_div->id,
+                // TODO: ijnstead have a funciton that applies an inverse
+                // For example, if 2x/4 should be kept as a rational, etc...
+                [](const Operand &opd) {
+                        return Operand {
+                                new_ <BinaryGrouping> (op_exp, opd, -1ll),
+                                eBinaryGrouping
+                        };
+
+                        // TODO: make sure opd is constant?
+                        
+                        // Real x = (opd.type == eReal) ? opd.r : static_cast <Real> (opd.i);
+                        // if (x == 0.0)
+                        //         warning("inverse", "division by zero");
+                        //
+                        // return 1.0/x;
+                }
+        }},
 };
 
 }

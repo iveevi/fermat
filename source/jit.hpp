@@ -63,7 +63,10 @@ struct JITFunction {
         }
 };
 
+namespace detail {
 
-gccjit::rvalue __jit_parse(JITContext &, const Operand &);
+gccjit::rvalue jit_parse(JITContext &, const Operand &);
+
+}
 
 }

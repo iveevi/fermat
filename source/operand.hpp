@@ -101,6 +101,14 @@ struct Operand {
                 return (type == eInteger || type == eReal);
         }
 
+        bool is_variable() const {
+                return (type == eUnresolved) && (uo.type == eVariable);
+        }
+
+        bool is_binary_grouping() const {
+                return (type == eUnresolved) && (uo.type == eBinaryGrouping);
+        }
+
         bool is_blank() const {
                 return (type == eBlank);
         }

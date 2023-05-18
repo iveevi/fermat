@@ -93,7 +93,7 @@ struct PartiallyEvaluated {
                         ftn.new_block(), variables
                 };
 
-                gccjit::rvalue ret = __jit_parse(jit_ctx, src);
+                gccjit::rvalue ret = detail::jit_parse(jit_ctx, src);
                 jit_ctx.block.end_with_return(ret);
 
                 // Compile the code

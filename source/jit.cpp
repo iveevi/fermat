@@ -4,14 +4,15 @@
 
 namespace fermat {
 
-// TODO: detail
-gccjit::rvalue __jit_parse(JITContext &jit_ctx, const BinaryGrouping &bg)
+namespace detail {
+
+gccjit::rvalue jit_parse(JITContext &jit_ctx, const BinaryGrouping &bg)
 {
         if (bg.degenerate())
-                return __jit_parse(jit_ctx, bg.opda);
+                return jit_parse(jit_ctx, bg.opda);
 
-        gccjit::rvalue a = __jit_parse(jit_ctx, bg.opda);
-        gccjit::rvalue b = __jit_parse(jit_ctx, bg.opdb);
+        gccjit::rvalue a = jit_parse(jit_ctx, bg.opda);
+        gccjit::rvalue b = jit_parse(jit_ctx, bg.opdb);
 
         gccjit::rvalue c;
         if (bg.op->id == op_add->id)
@@ -41,7 +42,7 @@ gccjit::rvalue __jit_parse(JITContext &jit_ctx, const BinaryGrouping &bg)
         return c;
 }
 
-gccjit::rvalue __jit_parse(JITContext &jit_ctx, const Operand &opd)
+gccjit::rvalue jit_parse(JITContext &jit_ctx, const Operand &opd)
 {
         if (opd.is_blank())
                 throw std::runtime_error("blank operand");
@@ -61,9 +62,11 @@ gccjit::rvalue __jit_parse(JITContext &jit_ctx, const Operand &opd)
         }
 
         if (uo.type == eBinaryGrouping)
-                return __jit_parse(jit_ctx, uo.as_binary_grouping());
+                return jit_parse(jit_ctx, uo.as_binary_grouping());
 
         throw std::runtime_error("unsupported operand type");
+}
+
 }
 
 }
