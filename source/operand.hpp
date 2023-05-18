@@ -92,9 +92,14 @@ struct Operand {
         Operand clone() const;
 
         // Properties
-        bool is_zero() {
+        bool is_zero() const {
                 return (type == eInteger && i == 0ll)
                         || (type == eReal && r == 0.0l);
+        }
+
+        bool is_one() const {
+                return (type == eInteger && i == 1ll)
+                        || (type == eReal && r == 1.0l);
         }
 
         bool is_constant() const {

@@ -7,7 +7,7 @@ int main()
         // Example parsing
         // TODO: implicit multiplication via conjunction
         std::string input = "2 + 6 + 5 * (x - x) + 6/y * y + 5^(z * z) - 12 + 9 * z * 3/6";
-        // std::string input = "2 - z - (4 - y)";
+        // std::string input = "2 * x + 3 * x";
         
         Operand result = parse(input).value();
         std::cout << "result: " << result.string() << std::endl;

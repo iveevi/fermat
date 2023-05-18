@@ -85,11 +85,14 @@ std::vector <Operand> unfold(const Operation *focus, const BinaryGrouping &bg)
                         break;
                 case eBinaryGrouping:
                         BinaryGrouping bg_nested = uo.as_binary_grouping();
+                        if (bg_nested.degenerate()) {
+                                stack.push({ bg_nested.opda, si.canon_inverse });
+                                break;
+                        }
+
                         if (bg_nested.op->id == focus->id) {
                                 stack.push({ bg_nested.opda, si.canon_inverse });
-
-                                if (!bg_nested.degenerate())
-                                        stack.push({ bg_nested.opdb, si.canon_inverse });
+                                stack.push({ bg_nested.opdb, si.canon_inverse });
                         } else if (bg_nested.op->id == ci.id) {
                                 // TODO: for nested inverse commutative
                                 // operations, the order of B or A switches
@@ -111,9 +114,9 @@ std::vector <Operand> unfold(const Operation *focus, const BinaryGrouping &bg)
                 }
         }
 
-        lout << "Result of unfolding:\n";
-        for (Operand opd : items)
-                lout << opd.string() << "\n";
+        // lout << "Result of unfolding:\n";
+        // for (Operand opd : items)
+        //         lout << opd.string() << "\n";
 
         return items;
 }
@@ -229,7 +232,155 @@ int64_t match(const ExpressionHash &a, const ExpressionHash &b)
         return min;
 }
 
-Operation *promote(Operation *op)
+bool cmp(const Operand &a, const Operand &b)
+{
+        assert(!a.is_blank() && !b.is_blank());
+
+        if (a.type != b.type)
+                return false;
+
+        if (a.is_constant()) {
+                if (a.type == eInteger && b.type == eInteger)
+                        return a.i == b.i;
+
+                if (a.type == eReal && b.type == eReal)
+                        return a.r == b.r;
+
+                return a.type == b.type;
+        }
+
+        if (a.uo.type != b.uo.type)
+                return false;
+
+        UnresolvedOperand uoa = a.uo;
+        UnresolvedOperand uob = b.uo;
+
+        if (uoa.type == eVariable && uob.type == eVariable)
+                return uoa.as_variable().lexicon == uob.as_variable().lexicon;
+
+        if (uoa.type == eBinaryGrouping && uob.type == eBinaryGrouping) {
+                BinaryGrouping bga = uoa.as_binary_grouping();
+                BinaryGrouping bgb = uob.as_binary_grouping();
+
+                return bga.op == bgb.op && cmp(bga.opda, bgb.opda) && cmp(bga.opdb, bgb.opdb);
+        }
+
+        warning("cmp", "unknown operand type");
+        return false;
+}
+
+// Returns a constant factor if possible
+// NOTE: This is different from general factorization,
+// which is deffered to a later stage
+Operand additive_constant_factor_match(Operation *prop, const Operand &base, const Operand &target)
+{
+        // NOTE: ONLY SUPPORTS MULTIPLICATIVE FACTORIZING
+        // exponentiation isnt commutative
+        assert(prop->id == op_mul->id);
+
+        // We simply want to find a subexpression of target that equals base
+        lout << "Constant factoring between " << base.string() << " and " << target.string() << "\n";
+
+        std::vector <Operand> items = unfold(prop, target);
+        for (Operand opd : items)
+                lout << "  $ " << opd.string() << "\n";
+
+        bool found = false;
+        for (auto it = items.begin(); it != items.end(); it++) {
+                if (cmp(base, *it)) {
+                        lout << "  common: " << it->string() << "\n";
+                        items.erase(it);
+                        found = true;
+                        break;
+                }
+        }
+
+        if (!found) {
+                lout << "  no common factor\n";
+                return {};
+        }
+
+        lout << "Remaining items:\n";
+        for (Operand opd : items)
+                lout << "  $ " << opd.string() << "\n";
+
+        if (items.size() == 0)
+                return 1ll;
+
+        if (items.size() == 1)
+                return items[0];
+
+        lout << "Folded:" << fold(prop, items).string() << "\n";
+        return fold(prop, items);
+}
+
+Operand multiplicative_constant_factor_match(Operation *prop, const Operand &base, const Operand &target)
+{
+        // TODO: make a non commutative version of this
+        // which aggresivel checks for common base (or bases that
+        // can be factored out)
+        //  - if the bases are both integers, then factor if perfect powers of each other
+        //  - if the bases are both reals, then change base to e?
+        assert(prop->id == op_exp->id);
+
+        static auto base_of = [](const Operand &opd) -> std::pair <Operand, Operand> {
+                // Sanity check
+                if (opd.type == eUnresolved && opd.uo.type == eBinaryGrouping) {
+                        BinaryGrouping bg = opd.uo.as_binary_grouping();
+                        if (bg.op && bg.op->id == op_exp->id)
+                                return { bg.opda, bg.opdb };
+                }
+
+                return { opd, 1ll };
+        };
+
+        auto [b1, e1] = base_of(base);
+        auto [b2, e2] = base_of(target);
+
+        lout << "Constant (multiplicative) factoring between " << base.string() << " and " << target.string() << "\n";
+        lout << "  base 1: " << b1.string() << ", exponent: " << e1.string() << "\n";
+        lout << "  base 2: " << b2.string() << ", exponent: " << e2.string() << "\n";
+
+        if (!cmp(b1, b2))
+                return {};
+
+        lout << "  same base!\n";
+
+        // TODO: add operators for this kind of semantics...
+        // Operand e = e1 + e2;
+        Operand exp;
+        if (e1.is_one()) {
+                exp = e2;
+        } else if (e1.is_constant()) {
+                if (e1.type == eInteger && e2.type == eInteger) {
+                        if (e2.i % e1.i == 0)
+                                exp = e2.i / e1.i;
+                }
+        } // TODO: if the exponents are themself additive factors...
+
+        if (exp.is_blank()) {
+                lout << "  no exponent match\n";
+                return {};
+        }
+
+        lout << "  exponent match: " << exp.string() << "\n";
+        
+        // TODO: simplify exponent
+        return simplify(exp);
+}
+
+Operand constant_factor_match(Operation *prop, const Operand &base, const Operand &target)
+{
+        if (prop->id == op_mul->id)
+                return additive_constant_factor_match(prop, base, target);
+        else if (prop->id == op_exp->id)
+                return multiplicative_constant_factor_match(prop, base, target);
+
+        warning("constant_factor_match", "unknown operation");
+        return {};
+}
+
+inline Operation *promote(Operation *op)
 {
         assert(op->classifications & eOperationCommutative);
 
@@ -242,19 +393,36 @@ Operation *promote(Operation *op)
         return op;
 }
 
-// NOTE: Assumes the parent operation was commutative, but does not check for it
-std::vector <Operand> simplification_gather(Operation *focus, const std::vector <Operand> &items)
+inline Operand identity(Operation *op)
 {
+        assert(op->classifications & eOperationCommutative);
+
+        if (op->id == op_add->id)
+                return 0ll;
+        if (op->id == op_mul->id)
+                return 1ll;
+
+        warning("identity", "unknown identity rule for \'" + op->lexicon + "\'");
+        return {};
+}
+
+// TODO: Assumes the parent operation was commutative, but does not check for it
+std::vector <Operand> simplification_gather(Operation *focus, const std::vector <Operand> &unordered_items)
+{
+        // Sanity check for later assumptions
+        assert(unordered_items.size() > 0);
+
         //TODO: pass operation to give context to matching
         // Gather common factors
         // TODO: log instead of printing outright...
         // e.g. define [...] cosntexpr operator<< (void) {} if disabled...
+
         lout << "[!] Attempting to gather items from:\n";
-        for (Operand opd : items)
+        for (Operand opd : unordered_items)
                 lout << "  $ " << opd.string() << "\n";
 
         std::vector <ExpressionHash> hashes;
-        for (Operand opd : items)
+        for (Operand opd : unordered_items)
                 hashes.push_back(hash(opd));
 
         lout << "[!] Hashes:\n";
@@ -265,43 +433,85 @@ std::vector <Operand> simplification_gather(Operation *focus, const std::vector 
                 lout << "\n";
         }
 
+        // Sort items by hash length, in hopes that the
+        // shorter ones will lead to successful hashes
+        std::vector <Operand> items = unordered_items;
+        std::sort(items.begin(), items.end(),
+                [](const Operand &a, const Operand &b) {
+                        return hash(a).linear.size() < hash(b).linear.size();
+                }
+        );
+
+        // Recompute hashes
+        hashes.clear();
+        for (Operand opd : items)
+                hashes.push_back(hash(opd));
+
+        lout << "[!] Sorted items:\n";
+        for (Operand opd : items)
+                lout << "  $ " << opd.string() << "\n";
+
         // Search for pairwise matches
         // TODO: matching should account for commutativity and inverse operations
 
-        // NOTE: index, count
-        std::unordered_map <int32_t, int32_t> gathered;
+        // TODO: first pass gathering; combine hashes that are identical
+        // (either by commutativity) or inverses...
+
+        // NOTE: index, factor
+        std::unordered_map <int32_t, Operand> gathered;
 
         std::vector <bool> ticked(items.size(), false);
+
+        // TODO: currently doesnt combine 2x + 3x or y^3 * y^2
+        // Need to find pairs that are identical or inverses -- easy for multiplication,
+        // harder for addition -- specialize this function for these
+        lout << "Checking for matches, focus = " << focus->lexicon << "\n";
         for (size_t i = 0; i < hashes.size(); i++) {
                 if (!ticked[i]) {
                         gathered[i] = 1;
                         ticked[i] = true;
+                } else {
+                        gathered[i] = {};
+                        continue;
                 }
 
                 for (size_t j = i + 1; j < hashes.size(); j++) {
-                        int64_t m = match(hashes[i], hashes[j]);
-                        if (m == 0) {
-                                lout << "[!] Match between " << i << " and " << j << ": " << m << "\n";
-                                gathered[i]++;
-                                ticked[j] = true;
-                        }
+                        Operand factor = constant_factor_match(promote(focus), items[i], items[j]);
+                        if (factor.is_blank())
+                                continue;
+
+                        lout << "Factor: " << factor.string() << "\n";
+                        gathered[i] = opftn(op_add, { gathered[i], factor });
+                        ticked[j] = true;
                 }
         }
+        
+        // TODO: factor.cpp which contains factorization functions
+        // and uses a pairwise strategy like string substring matching
+
+        // TODO: return early if no matches were found at all
 
         lout << "Gathered map:\n";
-        for (auto [i, count] : gathered)
-                lout << "  $ " << i << " -> " << count << "\n";
+        for (auto [i, factor] : gathered)
+                lout << "  $ " << i << " -> " << factor.string() << "\n";
 
         Operation *op = promote(focus);
 
         std::vector <Operand> gathered_items;
-        for (auto [i, count] : gathered) {
-                if (count > 1) {
+        for (auto [i, factor] : gathered) {
+                if (factor.is_blank() || factor.is_zero())
+                        continue;
+
+                lout << "Combining " << items[i].string() << " with factor " << factor.string() << "\n";
+                lout << "\tfactor is one? " << factor.is_one() << ", zero? " << factor.is_zero() << "\n";
+
+                // TODO: comparison operations...
+                if (!factor.is_one()) {
                         // TODO: fold if promotion is commutative
                         // to reduce the number of operations
                         Operand opd = items[i];
                         gathered_items.push_back(Operand {
-                                new_ <BinaryGrouping> (op, opd, count),
+                                new_ <BinaryGrouping> (op, opd, factor),
                                 eBinaryGrouping
                         });
                 } else {
@@ -313,6 +523,10 @@ std::vector <Operand> simplification_gather(Operation *focus, const std::vector 
         for (Operand opd : gathered_items)
                 lout << "  $ " << opd.string() << "\n";
 
+        // TODO: if empty, then return the identity element for the operation
+        if (gathered_items.empty())
+                gathered_items.push_back(identity(focus));
+
         return gathered_items;
 }
 
@@ -321,7 +535,6 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
         assert(focus->classifications & eOperationCommutative);
 
         std::vector <Operand> items = unfold(focus, bg);
-        // return fold(bg.op, items);
 
         std::vector <Operand> constants;
         std::vector <Operand> unresolved;
@@ -331,6 +544,28 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
                         constants.push_back(opd);
                 else
                         unresolved.push_back(opd);
+        }
+
+        // Process unresolved in case it simplifies to a constant
+        Operand unresolved_folded;
+        if (unresolved.size() == 1) {
+                unresolved_folded = simplify(unresolved[0]);
+        } else if (unresolved.size() > 0) {
+                // TODO: refactor to factor_compress...
+                unresolved = simplification_gather(focus, unresolved);
+                lout << "Simplification gather result:\n";
+                for (Operand opd : unresolved)
+                        lout << "  $ " << opd.string() << "\n";
+
+                // TODO: check if the result is a constant...
+                // if (unresolved.size() > 0)
+                unresolved_folded = fold(focus, unresolved);
+                if (is_constant(unresolved_folded)) {
+                        constants.push_back(unresolved_folded);
+                        unresolved_folded = {};
+                }
+
+                lout << "Net unresolved folded: " << unresolved_folded.string() << "\n";
         }
 
         Operand constant;
@@ -344,14 +579,6 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
 
                         constant = opftn(focus, { constant, opd });
                 }
-        }
-
-        Operand unresolved_folded;
-        if (unresolved.size() == 1) {
-                unresolved_folded = simplify(unresolved[0]);
-        } else if (unresolved.size() > 0) {
-                unresolved = simplification_gather(focus, unresolved);
-                unresolved_folded = fold(focus, unresolved);
         }
 
         // TODO: hash each element and see if we can combine terms...
@@ -369,8 +596,42 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
         };
 }
 
+// NOTE: Aggressive simplification, specialized for each operation
+// this happens after fold simplification, so what is left are mostly
+// special case optimizations
+Operand simplification_aggressive(const BinaryGrouping &bg)
+{
+        // NOTE: By now the operands are not both constants...
+        // also not degerate
+        assert(!is_constant(bg.opda) || !is_constant(bg.opdb) || !bg.degenerate());
+
+        Operand out = { new_ <BinaryGrouping> (bg), eBinaryGrouping };
+        if (bg.op->classifications & eOperationCommutative) {
+                const Operand &opda = bg.opda;
+                const Operand &opdb = bg.opdb;
+
+                if (bg.op->id == op_add->id) {
+                        if (opda.is_zero())
+                                out = opdb;
+                        else if (opdb.is_zero())
+                                out = opda;
+                } else if (bg.op->id == op_mul->id) {
+                        if (opda.is_one())
+                                out = opdb;
+                        else if (opdb.is_one())
+                                out = opda;
+                }
+        }
+
+        lout << "[*]  Aggressive simplification: " << out.string() << "\n";
+        return out;
 }
 
+}
+
+// TODO: graphviz DOT output of the simplification process
+// or an alternative represenationt that recordst he process
+// (and can be offered as an explanation later on)
 Operand simplify(const BinaryGrouping &bg)
 {
         if (bg.degenerate())
@@ -469,9 +730,11 @@ Operand simplify(const BinaryGrouping &bg)
 
         // TODO: possibly loop until no more simplifications can be made
 
-        lout << "[*]  out: " << out.string() << "\n";
+        // lout << "[*]  out: " << out.string() << "\n";
+        return detail::simplification_aggressive(out);
 
-        return { new_ <BinaryGrouping> (out), eBinaryGrouping };
+        // TODO: simplify combination again? if hashes have changed?
+        // return { new_ <BinaryGrouping> (out), eBinaryGrouping };
 }
 
 Operand simplify(const Operand &opd)
