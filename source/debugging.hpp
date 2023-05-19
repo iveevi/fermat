@@ -7,12 +7,12 @@
 
 namespace fermat {
 
-struct __lout {} lout;
+struct logging_stream {} lout;
 
 #ifdef FERMAT_DEBUGGING
 
 template <typename T>
-constexpr __lout &operator<<(__lout &lout, const T &t)
+constexpr logging_stream &operator<<(logging_stream &lout, const T &t)
 {
         std::cerr << t;
         return lout;
@@ -21,7 +21,7 @@ constexpr __lout &operator<<(__lout &lout, const T &t)
 #else
 
 template <typename T>
-constexpr __lout &operator<<(__lout &lout, const T &)
+constexpr logging_stream &operator<<(logging_stream &lout, const T &)
 {
         return lout;
 }

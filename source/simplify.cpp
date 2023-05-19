@@ -146,7 +146,7 @@ Operand fold(Operation *op, const std::vector <Operand> &opds)
                                 Operand b = current[i + 1];
 
                                 if (a.is_constant() && b.is_constant()) {
-                                        Operand res = opftn(op, { a, b });
+                                        Operand res = opftn(op, a, b);
                                         next.push_back(res);
                                 } else {
                                         BinaryGrouping bg = { op, a, b };
@@ -167,12 +167,19 @@ Operand fold(Operation *op, const std::vector <Operand> &opds)
 
 namespace detail {
 
-// TODO: hash.hpp/cpp
+ExpressionHash hash(const Operand &);
 
-struct ExpressionHash {
-        std::vector <int64_t> linear;
-        // std::vector <int32_t> redirect;
-};
+ExpressionHash hash(const BinaryGrouping &bg)
+{
+        ExpressionHash hash_a = hash(bg.opda);
+        ExpressionHash hash_b = hash(bg.opdb);
+
+        std::vector <int64_t> hash { bg.op->id };
+        hash.insert(hash.end(), hash_a.linear.begin(), hash_a.linear.end());
+        hash.insert(hash.end(), hash_b.linear.begin(), hash_b.linear.end());
+
+        return ExpressionHash { hash };
+}
 
 ExpressionHash hash(const Operand &opd)
 {
@@ -196,22 +203,13 @@ ExpressionHash hash(const Operand &opd)
 
         if (uo.type == eBinaryGrouping) {
                 BinaryGrouping bg = uo.as_binary_grouping();
-                ExpressionHash hash_a = hash(bg.opda);
-                ExpressionHash hash_b = hash(bg.opdb);
-
-                std::vector <int64_t> hash { bg.op->id };
-                hash.insert(hash.end(), hash_a.linear.begin(), hash_a.linear.end());
-                hash.insert(hash.end(), hash_b.linear.begin(), hash_b.linear.end());
-
-                // TODO: populate rediction table to be able to rotate commutation operations...
-
-                return ExpressionHash { hash };
+                return hash(bg);
         }
 
         throw std::runtime_error("hash: unknown operand type");
 }
 
-int64_t match(const ExpressionHash &a, const ExpressionHash &b)
+int64_t cmp(const ExpressionHash &a, const ExpressionHash &b)
 {
         // TODO: return the size of best match (e.g. factor out common subexpressions)
         int64_t min = 0;
@@ -262,11 +260,44 @@ bool cmp(const Operand &a, const Operand &b)
                 BinaryGrouping bga = uoa.as_binary_grouping();
                 BinaryGrouping bgb = uob.as_binary_grouping();
 
-                return bga.op == bgb.op && cmp(bga.opda, bgb.opda) && cmp(bga.opdb, bgb.opdb);
+                return (bga.op->id == bgb.op->id)
+                        && cmp(bga.opda, bgb.opda)
+                        && cmp(bga.opdb, bgb.opdb);
         }
 
         warning("cmp", "unknown operand type");
         return false;
+}
+
+// TODO: different header...
+// Perceptual complexity score as a heuristic for simplifying and factoring expressions
+int64_t perceptual_complexity(const Operand &opd)
+{
+        if (opd.is_constant()) {
+                if (opd.is_integer())
+                        return opd.i > 0 ? 1 : 2;
+
+                if (opd.is_real())
+                        return opd.r > 0 ? 1 : 2;
+        }
+
+        UnresolvedOperand uo = opd.uo;
+        if (uo.type == eVariable)
+                return uo.as_variable().lexicon.size();
+
+        if (uo.type == eBinaryGrouping) {
+                BinaryGrouping bg = uo.as_binary_grouping();
+
+                int64_t op_cost = 1;
+                if (bg.op->id == op_div->id)
+                        op_cost = 2;
+                if (bg.op->id == op_exp->id)
+                        op_cost = 3;
+
+                return perceptual_complexity(bg.opda) + perceptual_complexity(bg.opdb);
+        }
+
+        throw std::runtime_error("perceptual_complexity: unknown operand type");
 }
 
 // Returns a constant factor if possible
@@ -280,8 +311,14 @@ Operand additive_constant_factor_match(Operation *prop, const Operand &base, con
 
         // We simply want to find a subexpression of target that equals base
         lout << "Constant factoring between " << base.string() << " and " << target.string() << "\n";
+        if (!target.is_binary_grouping()) {
+                if (cmp(hash(base), hash(target)) == 0)
+                        return 1;
 
-        std::vector <Operand> items = unfold(prop, target);
+                return {};
+        }
+
+        std::vector <Operand> items = unfold(prop, target.uo.as_binary_grouping());
         for (Operand opd : items)
                 lout << "  $ " << opd.string() << "\n";
 
@@ -314,7 +351,7 @@ Operand additive_constant_factor_match(Operation *prop, const Operand &base, con
         return fold(prop, items);
 }
 
-Operand multiplicative_constant_factor_match(Operation *prop, const Operand &base, const Operand &target)
+Operand multiplicative_constant_factor_match(Operation *prop, const Operand &base, const Operand &target, simplification_context &sctx)
 {
         // TODO: make a non commutative version of this
         // which aggresivel checks for common base (or bases that
@@ -325,7 +362,7 @@ Operand multiplicative_constant_factor_match(Operation *prop, const Operand &bas
 
         static auto base_of = [](const Operand &opd) -> std::pair <Operand, Operand> {
                 // Sanity check
-                if (opd.type == eUnresolved && opd.uo.type == eBinaryGrouping) {
+                if (opd.is_binary_grouping()) {
                         BinaryGrouping bg = opd.uo.as_binary_grouping();
                         if (bg.op && bg.op->id == op_exp->id)
                                 return { bg.opda, bg.opdb };
@@ -366,15 +403,15 @@ Operand multiplicative_constant_factor_match(Operation *prop, const Operand &bas
         lout << "  exponent match: " << exp.string() << "\n";
         
         // TODO: simplify exponent
-        return simplify(exp);
+        return simplify(exp, sctx);
 }
 
-Operand constant_factor_match(Operation *prop, const Operand &base, const Operand &target)
+Operand constant_factor_match(Operation *prop, const Operand &base, const Operand &target, simplification_context &sctx)
 {
         if (prop->id == op_mul->id)
                 return additive_constant_factor_match(prop, base, target);
         else if (prop->id == op_exp->id)
-                return multiplicative_constant_factor_match(prop, base, target);
+                return multiplicative_constant_factor_match(prop, base, target, sctx);
 
         warning("constant_factor_match", "unknown operation");
         return {};
@@ -407,7 +444,7 @@ inline Operand identity(Operation *op)
 }
 
 // TODO: Assumes the parent operation was commutative, but does not check for it
-std::vector <Operand> simplification_gather(Operation *focus, const std::vector <Operand> &unordered_items)
+std::vector <Operand> simplification_gather(Operation *focus, const std::vector <Operand> &unordered_items, simplification_context &sctx)
 {
         // Sanity check for later assumptions
         assert(unordered_items.size() > 0);
@@ -476,12 +513,12 @@ std::vector <Operand> simplification_gather(Operation *focus, const std::vector 
                 }
 
                 for (size_t j = i + 1; j < hashes.size(); j++) {
-                        Operand factor = constant_factor_match(promote(focus), items[i], items[j]);
+                        Operand factor = constant_factor_match(promote(focus), items[i], items[j], sctx);
                         if (factor.is_blank())
                                 continue;
 
                         lout << "Factor: " << factor.string() << "\n";
-                        gathered[i] = opftn(op_add, { gathered[i], factor });
+                        gathered[i] = opftn(op_add, gathered[i], factor);
                         ticked[j] = true;
                 }
         }
@@ -530,11 +567,14 @@ std::vector <Operand> simplification_gather(Operation *focus, const std::vector 
         return gathered_items;
 }
 
-Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
+Operand simplification_fold(Operation *focus, const BinaryGrouping &bg, simplification_context &sctx)
 {
         assert(focus->classifications & eOperationCommutative);
 
         std::vector <Operand> items = unfold(focus, bg);
+        lout << "Unfolded items:\n";
+        for (Operand opd : items)
+                lout << "  $ " << opd.string() << "\n";
 
         std::vector <Operand> constants;
         std::vector <Operand> unresolved;
@@ -549,10 +589,11 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
         // Process unresolved in case it simplifies to a constant
         Operand unresolved_folded;
         if (unresolved.size() == 1) {
-                unresolved_folded = simplify(unresolved[0]);
+                lout << "single unresolved item: " << unresolved[0].string() << "\n";
+                unresolved_folded = simplify(unresolved[0], sctx);
         } else if (unresolved.size() > 0) {
                 // TODO: refactor to factor_compress...
-                unresolved = simplification_gather(focus, unresolved);
+                unresolved = simplification_gather(focus, unresolved, sctx);
                 lout << "Simplification gather result:\n";
                 for (Operand opd : unresolved)
                         lout << "  $ " << opd.string() << "\n";
@@ -570,14 +611,14 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
 
         Operand constant;
         if (constants.size() > 0) {
-                constant = simplify(constants[0]);
+                constant = simplify(constants[0], sctx);
                 assert(constant.is_constant());
 
                 for (int i = 1; i < constants.size(); ++i) {
-                        Operand opd = simplify(constants[i]);
+                        Operand opd = simplify(constants[i], sctx);
                         assert(opd.is_constant());
 
-                        constant = opftn(focus, { constant, opd });
+                        constant = opftn(focus, constant, opd);
                 }
         }
 
@@ -599,17 +640,17 @@ Operand simplification_fold(Operation *focus, const BinaryGrouping &bg)
 // NOTE: Aggressive simplification, specialized for each operation
 // this happens after fold simplification, so what is left are mostly
 // special case optimizations
-Operand simplification_aggressive(const BinaryGrouping &bg)
+Operand simplification_aggressive(const BinaryGrouping &bg, simplification_context &sctx)
 {
         // NOTE: By now the operands are not both constants...
         // also not degerate
         assert(!is_constant(bg.opda) || !is_constant(bg.opdb) || !bg.degenerate());
 
         Operand out = { new_ <BinaryGrouping> (bg), eBinaryGrouping };
+                
+        const Operand &opda = bg.opda;
+        const Operand &opdb = bg.opdb;
         if (bg.op->classifications & eOperationCommutative) {
-                const Operand &opda = bg.opda;
-                const Operand &opdb = bg.opdb;
-
                 if (bg.op->id == op_add->id) {
                         if (opda.is_zero())
                                 out = opdb;
@@ -618,12 +659,46 @@ Operand simplification_aggressive(const BinaryGrouping &bg)
                 } else if (bg.op->id == op_mul->id) {
                         if (opda.is_one())
                                 out = opdb;
+                        else if (opda.is_zero())
+                                out = 0;
                         else if (opdb.is_one())
                                 out = opda;
+                        else if (opdb.is_zero())
+                                out = 0;
+                }
+        } else {
+                if (bg.op->id == op_exp->id) {
+                        if (opda.is_zero()) {
+                                out = 0;
+                        } else if (opda.is_one()) {
+                                out = 1;
+                        } if (opdb.is_zero()) {
+                                out = 1;
+                        } else if (opdb.is_one()) {
+                                out = opda;
+                        } else if (opdb.is_integer()) {
+                                if (opdb.i < 0)
+                                        out = 1/(opda^(-opdb.i));
+                        } else if (opdb.is_real()) {
+                                if (opdb.r == 0.5) {}
+                                        // TODO: sqrt function
+                                else if (opdb.r < 0)
+                                        out = 1/(opda^(-opdb.r));
+                        }
                 }
         }
 
-        lout << "[*]  Aggressive simplification: " << out.string() << "\n";
+        // Simplify the operands if still possible
+        if (out.is_binary_grouping()) {
+                BinaryGrouping bg = out.uo.as_binary_grouping();
+                if (bg.opda.is_binary_grouping())
+                        bg.opda = simplify(bg.opda, sctx);
+                if (bg.opdb.is_binary_grouping())
+                        bg.opdb = simplify(bg.opdb, sctx);
+
+                out = { new_ <BinaryGrouping> (bg), eBinaryGrouping };
+        }
+
         return out;
 }
 
@@ -632,14 +707,38 @@ Operand simplification_aggressive(const BinaryGrouping &bg)
 // TODO: graphviz DOT output of the simplification process
 // or an alternative represenationt that recordst he process
 // (and can be offered as an explanation later on)
-Operand simplify(const BinaryGrouping &bg)
+Operand simplify(const BinaryGrouping &bg, detail::simplification_context &sctx)
 {
         if (bg.degenerate())
-                return simplify(bg.opda);
+                return simplify(bg.opda, sctx);
 
         lout << "\n--> Simplifying: " << bg.string() << "\n";
+        lout << "  sctx: " << sctx.cache.size() << "\n";
         Operation *focus = bg.op;
         lout << "Original focus: " << focus->lexicon << "\n";
+
+        // TODO: exit if expression is already simplified in the context (by
+        // hash...)
+        detail::ExpressionHash hash = detail::hash(bg);
+        lout << "  $ expr hash = " << hash.string() << "\n";
+        lout << "[*] current cache context" << "\n";
+        lout << sctx.string() << "\n";
+
+        if (sctx.find(hash) != -1) {
+                int64_t index = sctx.find(hash);
+                const auto &results = sctx.cache[index].second;
+                for (const Operand &opd : results) {
+                        lout << "compare: " << opd.string() << "\n";
+                        // TODO: pick lowest score...
+                        if (cmp(hash, detail::hash(opd)) == 0) {
+                                lout << "Already simplified: " << opd.string() << "\n";
+                                return opd;
+                        }
+                }
+
+                lout << "Already simplified: " << results[0].string() << "\n";
+                return results[0];
+        }
 
         // TODO: prefix with g_
         for (auto pr : commutative_inverses) {
@@ -650,94 +749,131 @@ Operand simplify(const BinaryGrouping &bg)
                 }
         }
 
-        if (!(focus->classifications & eOperationCommutative)) {
-                lout << "Regular simplification:\n" << bg.string() << "\n";
+        // Initial hashes
+        detail::ExpressionHash ihasha = detail::hash(bg.opda);
+        detail::ExpressionHash ihashb = detail::hash(bg.opdb);
 
-                // Simplify the operands
-                Operand a = simplify(bg.opda);
-                Operand b = simplify(bg.opdb);
+        BinaryGrouping out;
+        if (focus->classifications & eOperationCommutative) {
+                // Perform fold simplification first
+                lout << "Simplifying with operation: " << focus->lexicon << "\n";
+                Operand simplified = detail::simplification_fold(focus, bg, sctx);
+                lout << "Fold simplification:\n" << simplified.pretty() << "\n";
 
-                // If both are constant, then combine them
-                if (a.is_constant() && b.is_constant()) {
-                        Operand res = opftn(bg.op, { a, b });
-                        return res;
+                // If no longer a binary grouping, then return
+                if (!simplified.is_binary_grouping()) {
+                        lout << "No longer a binary grouping" << "\n";
+                        // Check what other strategies we have
+                        return simplify(simplified, sctx);
+                }
+                
+                // Check for degeneracy again
+                // TODO: why is this allowed in the first plane?
+                BinaryGrouping bgopt = simplified.uo.as_binary_grouping();
+                if (bgopt.degenerate()) {
+                        lout << "Degenerate simplification: " << bgopt.opda.string() << "\n";
+                        return simplify(bgopt.opda, sctx);
                 }
 
-                // Otherwise, return the grouping
-                BinaryGrouping out = bg;
+                // Other wise
+                lout << "Simplifying first branch: " << bgopt.opda.string() << " for " << bgopt.string() << "\n";
+                lout << "  original context: " << sctx.cache.size() << " with expr "  << bg.string() << "\n";
+                Operand a = simplify(bgopt.opda, sctx);
 
+                lout << "Simplifying second branch: " << bgopt.opdb.string() << " for " << bgopt.string() << "\n";
+                lout << "  original context: " << sctx.cache.size() << " with expr "  << bg.string() << "\n";
+                Operand b = simplify(bgopt.opdb, sctx);
+
+                // TODO: otherwise fallback to specialized simplification rules
+
+                // TODO: top down simplification or bottom up simplification?
+                // bottom down is simpler/faster, but top down is more powerful
+                // and we may be able to manipulate the tree in a more meaningful
+                // way
+                
+                // TODO: negative exponents should be transfered to the denominator
+
+                // TODO: hash each branch and compare to see if we can combine or cancel terms
+                // What is the hash function?
+
+                out = bgopt;
                 out.opda = a;
                 out.opdb = b;
 
-                return { new_ <BinaryGrouping> (out), eBinaryGrouping };
+                lout << "[*]  post branch simplification: " << out.string() << "\n";
+        } else {
+                // Simplify the operands
+                Operand a = simplify(bg.opda, sctx);
+                Operand b = simplify(bg.opdb, sctx);
+
+                out = bg;
+                out.opda = a;
+                out.opdb = b;
+                
+                lout << "[*]  regular branch-wise simplification: " << out.string() << "\n";
         }
-
-        // Perform fold simplification first
-        lout << "Simplifying with operation: " << focus->lexicon << "\n";
-        Operand simplified = detail::simplification_fold(focus, bg);
-        lout << "Fold simplification:\n" << simplified.pretty() << "\n";
-
-        // If no longer a binary grouping, then return
-        if (!simplified.is_binary_grouping()) {
-                lout << "No longer a binary grouping" << "\n";
-                // Check what other strategies we have
-                return simplify(simplified);
-        }
-        
-        // Check for degeneracy again
-        // TODO: why is this allowed in the first plane?
-        BinaryGrouping bgopt = simplified.uo.as_binary_grouping();
-        if (bgopt.degenerate()) {
-                lout << "Degenerate simplification: " << bgopt.opda.string() << "\n";
-                return simplify(bgopt.opda);
-        }
-
-        // Other wise
-        lout << "Simplifying first branch: " << bgopt.opda.string() << "\n";
-        Operand a = simplify(bgopt.opda);
-
-        lout << "Simplifying second branch: " << bgopt.opdb.string() << "\n";
-        Operand b = simplify(bgopt.opdb);
 
         // If both are constant, then combine them
-        if (a.is_constant() && b.is_constant()) {
-                Operand res = opftn(bgopt.op, { a, b });
-                return res;
+        if (out.opda.is_constant() && out.opdb.is_constant())
+                return opftn(out.op, out.opda, out.opdb);
+
+        lout << "[I]  perparing to aggressively simplify: " << out.string() << "\n";
+        int64_t index = sctx.find(hash);
+        if (index == -1) {
+                sctx.cache.push_back({ hash, {{ new_ <BinaryGrouping> (out), eBinaryGrouping }}});
+        } else {
+                auto &results = sctx.cache[index];
+                results.second.push_back({ new_ <BinaryGrouping> (out), eBinaryGrouping });
         }
 
-        // TODO: otherwise fallback to specialized simplification rules
+        Operand result = detail::simplification_aggressive(out, sctx);
+        lout << "[*]  aggressive simplification: " << result.string() << " for " << bg.string() << "\n";
+        if (result.is_binary_grouping()) {
+                const BinaryGrouping &nbg = result.uo.as_binary_grouping();
 
-        // TODO: top down simplification or bottom up simplification?
-        // bottom down is simpler/faster, but top down is more powerful
-        // and we may be able to manipulate the tree in a more meaningful
-        // way
-        
-        // TODO: negative exponents should be transfered to the denominator
+                detail::ExpressionHash fhasha = detail::hash(nbg.opda);
+                detail::ExpressionHash fhashb = detail::hash(nbg.opdb);
 
-        // TODO: hash each branch and compare to see if we can combine or cancel terms
-        // What is the hash function?
+                lout << "starting expression: " << bg.string() << " vs " << result.string() << "\n";
 
-        // TODO: lastly, apply operation specific rules (e.g. x * 1 = x, x * 0 = 0, etc., x^0 = 1, etc.)
-        // Otherwise, return the grouping
-        BinaryGrouping out = bgopt;
+                // NOTE: loop until no more simplifications can be made
+                // TODO: cycle check (e.g. x^-1 and 1/x) -- choose one with
+                // lower perceptual_complexity value
+                if (cmp(fhasha, ihasha) + cmp(fhashb, ihashb) != 0) {
+                        lout << "New tree, re-simplifying: " << result.string() << "\n";
 
-        out.opda = a;
-        out.opdb = b;
+                        // Before recursing, check if we have already seen this
+                        detail::ExpressionHash hash = detail::hash(nbg);
 
-        lout << "[*]  post branch simplification: " << out.string() << "\n";
-        // TODO: std::optional <Operand> simplify_aggressive(const BinaryGrouping &bg)
-        // -> simplify_aggressive_mult,etc.
+                        // auto it = sctx.cache.find(hash);
+                        int64_t index = sctx.find(hash);
+                        if (index  != -1) {
+                                const auto &results = sctx.cache[index].second;
+                                for (auto &res : results) {
+                                        lout << "Comparing: " << res.string() << " and " << result.string() << "\n";
+                                        if (detail::cmp(res, result)) {
+                                                lout << "Already seen this result\n";
+                                                // TODO: return smallest perceptual_complexity
+                                                return result;
+                                        }
+                                }
+                        } else {
+                                sctx.cache.push_back({ hash, {{ new_ <BinaryGrouping> (nbg), eBinaryGrouping }}});
+                        }
 
-        // TODO: possibly loop until no more simplifications can be made
+                        detail::simplification_context sctx_copy = sctx;
 
-        // lout << "[*]  out: " << out.string() << "\n";
-        return detail::simplification_aggressive(out);
+                        // auto &results = sctx_copy.cache[index].second;
+                        // results.push_back(result);
 
-        // TODO: simplify combination again? if hashes have changed?
-        // return { new_ <BinaryGrouping> (out), eBinaryGrouping };
+                        return simplify(result.uo.as_binary_grouping(), sctx_copy);
+                }
+        }
+
+        return result;
 }
 
-Operand simplify(const Operand &opd)
+Operand simplify(const Operand &opd, detail::simplification_context &sctx)
 {
         // TODO: this function is short, combine with one above?
         if (opd.is_constant() || opd.is_blank())
@@ -748,7 +884,7 @@ Operand simplify(const Operand &opd)
         case eVariable:
                 return opd;
         case eBinaryGrouping:
-                return simplify(uo.as_binary_grouping());
+                return simplify(uo.as_binary_grouping(), sctx);
         }
 
         throw std::runtime_error("simplify: unsupported operand type, opd=<" + opd.string() + ">");

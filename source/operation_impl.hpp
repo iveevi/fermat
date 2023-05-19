@@ -9,10 +9,10 @@
 
 namespace fermat {
 
-using __operation_function = std::function <Operand (const std::vector <Operand> &)>;
+using binary_operation = std::function <Operand (const Operand &, const Operand &)>;
 
 OperationId getid();
-Operand opftn(const Operation *, const std::vector <Operand> &);
+Operand opftn(const Operation *, const Operand &, const Operand &);
 
 extern Operation *op_add;
 extern Operation *op_sub;
@@ -21,7 +21,7 @@ extern Operation *op_div;
 extern Operation *op_exp;
 
 extern std::vector <Operation> g_operations;
-extern std::unordered_map <OperationId, __operation_function> g_operation_functions;
+extern std::unordered_map <OperationId, binary_operation> g_operation_functions;
 
 struct CommutativeInverse {
         OperationId id = -1;
@@ -29,5 +29,12 @@ struct CommutativeInverse {
 };
 
 extern std::unordered_map <OperationId, CommutativeInverse> commutative_inverses;
+
+// Operator overloading for operands
+Operand operator+(const Operand &, const Operand &);
+Operand operator-(const Operand &, const Operand &);
+Operand operator*(const Operand &, const Operand &);
+Operand operator/(const Operand &, const Operand &);
+Operand operator^(const Operand &, const Operand &);
 
 }

@@ -6,13 +6,15 @@ int main()
 
         // Example parsing
         // TODO: implicit multiplication via conjunction
-        std::string input = "2 + 6 + 5 * (x - x) + 6/y * y + 5^(z * z) - 12 + 9 * z * 3/6";
-        // std::string input = "2 * x + 3 * x";
+        std::string input = "2 + 6 + 5 * (x - x) + 6/y * y + 5^(z * z) - 12 + 9 * z * 3/6 + 0 * x";
+        // std::string input = "1/x";
         
         Operand result = parse(input).value();
         std::cout << "result: " << result.string() << std::endl;
 
-        Operand simplified = simplify(result);
+        // TODO: move out of detail
+        detail::simplification_context sctx;
+        Operand simplified = simplify(result, sctx);
         std::cout << "simplified: " << simplified.string() << std::endl;
 
         PartiallyEvaluated pe = partially_evaluate(simplified);

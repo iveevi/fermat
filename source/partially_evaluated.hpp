@@ -31,7 +31,8 @@ struct PartiallyEvaluated {
                 // std::cout << "Substituted: " << opd.string() << std::endl;
                 // std::cout << "src = " << src.string() << std::endl;
 
-                return simplify(opd);
+                detail::simplification_context sctx;
+                return simplify(opd, sctx);
         }
 
         template <typename ... Args>
@@ -53,7 +54,8 @@ struct PartiallyEvaluated {
                 // std::cout << "Substituted: " << opd.string() << std::endl;
                 // std::cout << "src = " << src.string() << std::endl;
 
-                return simplify(opd);
+                detail::simplification_context sctx;
+                return simplify(opd, sctx);
         }
 
         // Generate JIT-compiled function

@@ -102,6 +102,14 @@ struct Operand {
                         || (type == eReal && r == 1.0l);
         }
 
+        bool is_integer() const {
+                return (type == eInteger);
+        }
+
+        bool is_real() const {
+                return (type == eReal);
+        }
+
         bool is_constant() const {
                 return (type == eInteger || type == eReal);
         }
@@ -118,8 +126,6 @@ struct Operand {
                 return (type == eBlank);
         }
 
-        // bool resolved
-
         // Printing
         std::string string(Operation * = nullptr) const;
         std::string pretty(int = 0) const;
@@ -132,16 +138,11 @@ struct Operand {
         static Operand one() {
                 return Operand { 1ll };
         }
-
-        // union {
         
         // Possible types
         Integer i;
         Real r;
         UnresolvedOperand uo;
-
-        // } base;
-
         int64_t type = eBlank;
 };
 
@@ -173,15 +174,13 @@ struct BinaryGrouping {
         Operand opdb;
 
         BinaryGrouping() = default;
-        BinaryGrouping(Operand opda_) : opda { opda_ } {}
         BinaryGrouping(Operation *op_, Operand opda_, Operand opdb_)
-                : op { op_ }, opda { opda_ }, opdb { opdb_ } {}
+                : op { op_ }, opda { opda_ }, opdb { opdb_ } {
+                assert(op);
+        }
 
         // Deep clone
         BinaryGrouping clone() const {
-                if (degenerate())
-                        return BinaryGrouping { opda.clone() };
-
                 return BinaryGrouping { op, opda.clone(), opdb.clone() };
         }
 

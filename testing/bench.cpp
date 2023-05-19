@@ -34,6 +34,21 @@ static void evaluate_jit_base(benchmark::State &state)
 
 BENCHMARK(evaluate_jit_base);
 
+static void evaluate_jit_simplified(benchmark::State &state)
+{
+        fermat::Operand result = fermat::parse(input).value();
+        fermat::detail::simplification_context sctx;
+        result = fermat::simplify(result, sctx);
+
+        fermat::PartiallyEvaluated pe = fermat::partially_evaluate(result);
+        fermat::JITFunction jftn = pe.emit();
+
+        for (auto _ : state)
+                jftn(3);
+}
+
+BENCHMARK(evaluate_jit_simplified);
+
 static void evaluate_jit_optimized(benchmark::State &state)
 {
         fermat::Operand result = fermat::parse(input).value();

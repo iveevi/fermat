@@ -28,9 +28,9 @@ struct JITContext {
 };
 
 struct JITFunction {
-        using __jit_ftn_t = Real (*)(const Real *);
+        using jit_ftn_t = Real (*)(const Real *);
         
-        __jit_ftn_t ftn;
+        jit_ftn_t ftn;
         uint32_t parameters;
         gcc_jit_result *result = nullptr;
 
@@ -42,7 +42,7 @@ struct JITFunction {
                 if (!ptr)
                         throw std::runtime_error("JITFunction: failed to get code");
 
-                ftn = reinterpret_cast <__jit_ftn_t> (ptr);
+                ftn = reinterpret_cast <jit_ftn_t> (ptr);
         }
 
         ~JITFunction() {

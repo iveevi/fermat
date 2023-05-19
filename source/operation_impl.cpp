@@ -46,15 +46,10 @@ Operation *op_mul = &g_operations[2];
 Operation *op_div = &g_operations[3];
 Operation *op_exp = &g_operations[4];
 
-using __operation_function = std::function <Operand (const std::vector <Operand> &)>;
-
 // TODO: overload manager to resolve between different groups of items
 // TODO: detail namespace
-inline Operand __operation_function_add(const std::vector <Operand> &vec)
+inline Operand operation_function_add(const Operand &a, const Operand &b)
 {
-        Operand a = vec[0];
-        Operand b = vec[1];
-
         Operand res;
         if (a.type == eInteger && b.type == eInteger)
                 res = Operand { a.i + b.i };
@@ -71,11 +66,8 @@ inline Operand __operation_function_add(const std::vector <Operand> &vec)
         return res;
 }
 
-inline Operand __operation_function_sub(const std::vector <Operand> &vec)
+inline Operand operation_function_sub(const Operand &a, const Operand &b)
 {
-        Operand a = vec[0];
-        Operand b = vec[1];
-
         Operand res;
         if (a.type == eInteger && b.type == eInteger)
                 res = Operand { a.i - b.i };
@@ -92,11 +84,8 @@ inline Operand __operation_function_sub(const std::vector <Operand> &vec)
         return res;
 }
 
-inline Operand __operation_function_mul(const std::vector <Operand> &vec)
+inline Operand operation_function_mul(const Operand &a, const Operand &b)
 {
-        Operand a = vec[0];
-        Operand b = vec[1];
-
         Operand res;
         if (a.type == eInteger && b.type == eInteger)
                 res = Operand { a.i * b.i };
@@ -113,11 +102,8 @@ inline Operand __operation_function_mul(const std::vector <Operand> &vec)
         return res;
 }
 
-inline Operand __operation_function_div(const std::vector <Operand> &vec)
+inline Operand operation_function_div(const Operand &a, const Operand &b)
 {
-        Operand a = vec[0];
-        Operand b = vec[1];
-
         if (b.is_zero())
                 warning("div", "division by zero");
 
@@ -144,35 +130,35 @@ inline Operand __operation_function_div(const std::vector <Operand> &vec)
         return res;
 }
 
-inline Operand __operation_function_exp(const std::vector <Operand> &vec)
+inline Operand operation_function_exp(const Operand &opda, const Operand &opdb)
 {
         Real a;
         Real b;
 
-        if (vec[0].type == eInteger)
-                a = static_cast <Real> (vec[0].i);
+        if (opda.type == eInteger)
+                a = static_cast <Real> (opda.i);
         else
-                a = vec[0].r;
+                a = opda.r;
 
-        if (vec[1].type == eInteger)
-                b = static_cast <Real> (vec[1].i);
+        if (opdb.type == eInteger)
+                b = static_cast <Real> (opdb.i);
         else
-                b = vec[1].r;
+                b = opdb.r;
 
         return std::pow(a, b);
 }
 
-std::unordered_map <OperationId, __operation_function> g_operation_functions {
-        { op_add->id, __operation_function_add },
-        { op_sub->id, __operation_function_sub },
-        { op_mul->id, __operation_function_mul },
-        { op_div->id, __operation_function_div },
-        { op_exp->id, __operation_function_exp },
+std::unordered_map <OperationId, binary_operation> g_operation_functions {
+        { op_add->id, operation_function_add },
+        { op_sub->id, operation_function_sub },
+        { op_mul->id, operation_function_mul },
+        { op_div->id, operation_function_div },
+        { op_exp->id, operation_function_exp },
 };
 
-Operand opftn(const Operation *op, const std::vector <Operand> &vec)
+Operand opftn(const Operation *op, const Operand &opda, const Operand &opdb)
 {
-        return g_operation_functions[op->id](vec);
+        return g_operation_functions[op->id](opda, opdb);
 }
 
 std::unordered_map <OperationId, CommutativeInverse> commutative_inverses {
@@ -206,5 +192,47 @@ std::unordered_map <OperationId, CommutativeInverse> commutative_inverses {
                 }
         }},
 };
+
+// Operator overloads
+// NOTE: Generates a binary grouping, but simplification must be done later
+Operand operator+(const Operand &opda, const Operand &opdb)
+{
+        return Operand {
+                new_ <BinaryGrouping> (op_add, opda, opdb),
+                eBinaryGrouping
+        };
+}
+
+Operand operator-(const Operand &opda, const Operand &opdb)
+{
+        return Operand {
+                new_ <BinaryGrouping> (op_sub, opda, opdb),
+                eBinaryGrouping
+        };
+}
+
+Operand operator*(const Operand &opda, const Operand &opdb)
+{
+        return Operand {
+                new_ <BinaryGrouping> (op_mul, opda, opdb),
+                eBinaryGrouping
+        };
+}
+
+Operand operator/(const Operand &opda, const Operand &opdb)
+{
+        return Operand {
+                new_ <BinaryGrouping> (op_div, opda, opdb),
+                eBinaryGrouping
+        };
+}
+
+Operand operator^(const Operand &opda, const Operand &opdb)
+{
+        return Operand {
+                new_ <BinaryGrouping> (op_exp, opda, opdb),
+                eBinaryGrouping
+        };
+}
 
 }
